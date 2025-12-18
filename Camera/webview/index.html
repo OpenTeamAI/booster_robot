@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Camera Webview</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+    :root {
+      --bg-1: #f7f1e8;
+      --bg-2: #e7efe9;
+      --ink: #262521;
+      --muted: #6b6a65;
+      --panel: #fffdf9;
+      --accent: #0f7a6a;
+      --accent-2: #f2b447;
+      --shadow: 0 18px 40px rgba(30, 30, 30, 0.12);
+      --radius: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Helvetica Neue", sans-serif;
+      color: var(--ink);
+      min-height: 100vh;
+      background:
+        radial-gradient(1200px 700px at 10% 10%, rgba(242, 180, 71, 0.18), transparent 60%),
+        radial-gradient(900px 600px at 90% 10%, rgba(15, 122, 106, 0.2), transparent 55%),
+        linear-gradient(135deg, var(--bg-1), var(--bg-2));
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    h1 {
+      margin: 10px 0 8px;
+      font-family: "Fraunces", serif;
+      font-size: clamp(28px, 4vw, 44px);
+      letter-spacing: -0.02em;
+    }
+
+    .lede {
+      margin: 0;
+      color: var(--muted);
+      max-width: 560px;
+    }
+
+    .meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      background: rgba(15, 122, 106, 0.12);
+      color: var(--accent);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 22px;
+      margin-top: 32px;
+    }
+
+    .card {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: rise 0.6s ease forwards;
+    }
+
+    .card:nth-child(2) {
+      animation-delay: 0.08s;
+    }
+
+    .card:nth-child(3) {
+      animation-delay: 0.16s;
+    }
+
+    .card-head {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .label {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .topic {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .frame {
+      background: #141411;
+      aspect-ratio: 4 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .tips {
+      margin-top: 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .tips code {
+      background: rgba(0, 0, 0, 0.06);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(14px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        align-items: flex-start;
+      }
+
+      .pill {
+        width: fit-content;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .card {
+        animation: none;
+        opacity: 1;
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div>
+        <div class="eyebrow">ROS2 Camera</div>
+        <h1>Triple Stream Monitor</h1>
+        <p class="lede">Color, depth, and aligned depth from web_video_server.</p>
+      </div>
+      <div class="meta">
+        <div class="pill">Host: <span id="host"></span></div>
+        <div class="pill">Stream: <span id="stream-base"></span></div>
+      </div>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-head">
+          <div class="label">Color</div>
+          <div class="topic" id="color-topic"></div>
+        </div>
+        <div class="frame">
+          <img id="color" alt="Color stream">
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div class="label">Depth</div>
+          <div class="topic" id="depth-topic"></div>
+        </div>
+        <div class="frame">
+          <img id="depth" alt="Depth stream">
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div class="label">Aligned Depth</div>
+          <div class="topic" id="aligned-topic"></div>
+        </div>
+        <div class="frame">
+          <img id="aligned" alt="Aligned depth stream">
+        </div>
+      </article>
+    </section>
+
+    <div class="tips">
+      Tip: depth uses colorized topics from <code>depth_colorizer.py</code>. Override with
+      <code>?depth_topic=...</code> or <code>?aligned_topic=...</code>.
+    </div>
+  </main>
+  <script>
+    const host = location.hostname || "localhost";
+    const streamPort = 8080;
+    const base = `http://${host}:${streamPort}/stream`;
+    const params = new URLSearchParams(location.search);
+    const qosProfile = params.get("qos_profile") || "sensor_data";
+    const depthTransport = params.get("depth_transport");
+    const colorTopic = params.get("color_topic") || "/camera/camera/color/image_raw";
+    const depthTopic = params.get("depth_topic") || "/camera/camera/depth/image_rect_colorized";
+    const alignedTopic = params.get("aligned_topic") || "/camera/camera/aligned_depth_to_color/image_colorized";
+
+    function buildStreamUrl(topic, extra) {
+      const merged = { topic, qos_profile: qosProfile, ...extra };
+      const search = new URLSearchParams(merged);
+      return `${base}?${search.toString()}`;
+    }
+
+    const depthExtra = depthTransport ? { image_transport: depthTransport } : {};
+
+    document.getElementById("color").src = buildStreamUrl(colorTopic, {});
+    document.getElementById("depth").src = buildStreamUrl(depthTopic, depthExtra);
+    document.getElementById("aligned").src = buildStreamUrl(alignedTopic, depthExtra);
+
+    document.getElementById("host").textContent = host;
+    document.getElementById("stream-base").textContent = base;
+    document.getElementById("color-topic").textContent = colorTopic;
+    document.getElementById("depth-topic").textContent = depthTopic;
+    document.getElementById("aligned-topic").textContent = alignedTopic;
+  </script>
+</body>
+</html>

@@ -5,7 +5,7 @@
 Call the built-in Dance API (>= v1.2.0.2) with a selected DanceId.
 Usage examples:
     python dance.py nezha
-    python dance.py --id 2
+    python dance.py 2
     python dance.py stop
 """
 
