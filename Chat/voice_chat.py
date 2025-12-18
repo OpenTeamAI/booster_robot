@@ -18,7 +18,8 @@ import webrtcvad
 from elevenlabs import ElevenLabs
 
 
-API_URL = "https://www.openteam.ai/api/agent/v1/vesta_agent/chat/new"
+API_BASE_URL = "https://www.openteam.ai/api/agent/v1/vesta_agent/chat"
+API_NEW_URL = f"{API_BASE_URL}/new"
 AUTH_TOKEN = (
     "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
     "eyJ1c2VyX2lkIjoidXNlci04ZThhYzk2OC02YjhkLTQxNGEt"
@@ -55,6 +56,7 @@ WAV_CHANNELS = "2"
 STREAM_TTS_MIN_CHARS_STRONG = 12
 STREAM_TTS_MAX_CHARS = 160
 STRONG_ENDINGS = set("\u3002\uff01\uff1f!?")
+LOG_PATH = Path("./conversation_log.jsonl")
 
 
 def require_cmd(cmd: str, install_hint: str) -> None:
@@ -115,6 +117,11 @@ def preprocess_frame(indata: np.ndarray) -> np.ndarray:
     if NOISE_GATE > 0:
         audio = np.where(np.abs(audio) < NOISE_GATE, 0, audio)
     return np.clip(audio, -32768, 32767).astype(np.int16)
+
+
+def append_log(entry: dict) -> None:
+    with LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def listen_once() -> str:
@@ -195,7 +202,11 @@ def listen_once() -> str:
     if STT_LANGUAGE_CODE:
         stt_kwargs["language_code"] = STT_LANGUAGE_CODE
 
-    result = client.speech_to_text.convert(**stt_kwargs)
+    try:
+        result = client.speech_to_text.convert(**stt_kwargs)
+    except Exception as exc:
+        print(f"STT failed: {exc}")
+        return ""
     return strip_audio_events(result.text.strip())
 
 
@@ -285,44 +296,44 @@ def audio_worker(audio_queue: queue.Queue) -> None:
             pass
 
 
-def main() -> None:
-    user_text = listen_once()
-    if not user_text:
-        print("No speech detected.")
-        return
-
-    print(f"User: {user_text}")
-    payload = {"messages": [{"role": "user", "content": user_text}]}
+def request_and_speak(
+    user_text: str, conversation_id: str | None
+) -> tuple[str | None, str]:
+    payload = {"messages": [{"role": "user", "content": "给我口语化简短回答：" + user_text}]}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "Authorization": AUTH_TOKEN,
         "Content-Length": str(len(body)),
     }
+    url = API_NEW_URL if not conversation_id else f"{API_BASE_URL}/{conversation_id}"
 
-    resp = requests.post(API_URL, data=body, headers=headers, timeout=30, stream=True)
+    resp = requests.post(url, data=body, headers=headers, timeout=30, stream=True)
     resp.raise_for_status()
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = "utf-8"
 
     content_type = resp.headers.get("Content-Type", "")
     assistant_parts = []
+    updated_conversation_id = conversation_id
+
     if "application/json" in content_type and "text/event-stream" not in content_type:
         data = resp.json()
         print(data)
         if isinstance(data, dict):
+            if data.get("conversationId") and not updated_conversation_id:
+                updated_conversation_id = data["conversationId"]
             if data.get("role") == "assistant" and data.get("content"):
                 assistant_parts.append(data["content"])
         elif isinstance(data, list):
             for item in data:
-                if (
-                    isinstance(item, dict)
-                    and item.get("role") == "assistant"
-                    and item.get("content")
-                ):
-                    assistant_parts.append(item["content"])
+                if isinstance(item, dict):
+                    if item.get("conversationId") and not updated_conversation_id:
+                        updated_conversation_id = item["conversationId"]
+                    if item.get("role") == "assistant" and item.get("content"):
+                        assistant_parts.append(item["content"])
         speak_text("".join(assistant_parts))
-        return
+        return updated_conversation_id, "".join(assistant_parts)
 
     if "text/event-stream" in content_type or "stream" in content_type:
         text_queue = queue.Queue()
@@ -344,6 +355,10 @@ def main() -> None:
             try:
                 data = json.loads(line)
                 print(data)
+                if isinstance(data, dict) and data.get("conversationId"):
+                    if not updated_conversation_id:
+                        updated_conversation_id = data["conversationId"]
+                        print(f"Conversation ID: {updated_conversation_id}")
                 if (
                     isinstance(data, dict)
                     and data.get("role") == "assistant"
@@ -362,9 +377,72 @@ def main() -> None:
         text_queue.put(None)
         tts_thread.join()
         audio_thread.join()
-        return
+        return updated_conversation_id, "".join(assistant_parts)
 
     print(resp.text)
+    return updated_conversation_id, ""
+
+
+def listener_loop(
+    text_queue: queue.Queue,
+    stop_event: threading.Event,
+    playback_active: threading.Event,
+) -> None:
+    def on_speech_start():
+        if playback_active.is_set():
+            stop_event.set()
+
+    while True:
+        text = listen_once(
+            on_speech_start=on_speech_start, playback_active=playback_active
+        )
+        if not text:
+            print("No speech detected.")
+            continue
+        text_queue.put(text)
+
+
+def main() -> None:
+    conversation_id = None
+    turn_index = 0
+    print("Voice chat ready. Press Ctrl+C to stop.")
+    playback_stop_event = threading.Event()
+    playback_active_event = threading.Event()
+    utterance_queue = queue.Queue()
+    listener_thread = threading.Thread(
+        target=listener_loop,
+        args=(utterance_queue, playback_stop_event, playback_active_event),
+        daemon=True,
+    )
+    listener_thread.start()
+    while True:
+        user_text = utterance_queue.get()
+        playback_stop_event.clear()
+        turn_index += 1
+        print(f"User: {user_text}")
+        updated_conversation_id, assistant_text = request_and_speak(
+            user_text, conversation_id, playback_stop_event, playback_active_event
+        )
+        if updated_conversation_id and updated_conversation_id != conversation_id:
+            conversation_id = updated_conversation_id
+
+        append_log(
+            {
+                "turn": turn_index,
+                "conversationId": conversation_id,
+                "role": "user",
+                "content": user_text,
+            }
+        )
+        if assistant_text:
+            append_log(
+                {
+                    "turn": turn_index,
+                    "conversationId": conversation_id,
+                    "role": "assistant",
+                    "content": assistant_text,
+                }
+            )
 
 
 if __name__ == "__main__":
